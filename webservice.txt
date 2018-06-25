@@ -1,0 +1,22 @@
+1.先写程序
+	1.1创建一个java的项目
+	1.2创建一个包
+	1.3创建一个Interface，引入包，然后定义各个程序
+	1.4创建一个类实现上面的interface
+	
+2.开始部署这个项目
+  2.1 复制一个开放好的webservice(里面的lib下面有很多包有用)
+  2.2 把刚才开放好的的程序按位置放好。上面的interface和类生产的class
+	  文件放到WEB-INF---->classes里面
+  2.3 用 wsgen -cp . ws.TestImpI 命令生产文件，jaxws 里面有我们的API方法
+  2.4.配置两个xml文件
+  2.5 本地先测试,把这个下面下面的所有文件拷贝到Tomcatwebapp，运行
+  就可以了
+  2.6.可以试着修改目前看这个地方得和包名一致(不用一致可以修改)
+  2.7：传到服务器上去，测试成功，再用soap 测试，测试成功
+  2.8：写个程序试试
+  
+  
+3.已经做好的插入数据 JAWS_server 的项目，对应的web service  http://10.0.2.154:8080/wstestnew/ws?wsdl
+
+  
