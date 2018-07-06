@@ -1,4 +1,4 @@
-create or replace package CUX_INTERFACE_RULE_PKG is
+create or replace package apps.CUX_INTERFACE_RULE_PKG is
 
   -- Author  : NEAL
   -- Created : 2018/3/19 13:03:38
@@ -18,7 +18,7 @@ create or replace package CUX_INTERFACE_RULE_PKG is
     
 end CUX_INTERFACE_RULE_PKG;
 /
-create or replace package body CUX_INTERFACE_RULE_PKG is
+create or replace package body apps.CUX_INTERFACE_RULE_PKG is
 /*================================================
   * ===============================================
   *   PROGRAM NAME:
@@ -567,7 +567,9 @@ End;
   L_var    Number;
   cv Sys_Refcursor;  ---动态游标
   L_Con_Result Varchar2(200);--每个条件的返回结果值
+  L_Con_Result_Desc Varchar2(1000):='';
   L_Result     Varchar2(2000):='';--总的条件的返回的结果值
+  L_Result_Desc       varchar2(2000):='';--总的描述信息
  --存在多少种条件
  Cursor cur_get_Condition Is Select 
        Distinct cgimv.con_sequences,cgitm.mapp_id
@@ -583,7 +585,11 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
        Cgimv.Conditions,
        cgimv.true_value,
        cgimv.false_value,
-       cgimv.attribute3
+       cgimv.attribute3,
+       cgimv.attribute6,
+       cgimv.attribute7,
+       cgimv.attribute8
+       
   From Cux_Gl_Intab_Map_Value Cgimv
   Where Cgimv.Mapp_Id=P_Mapp_id
   And   cgimv.con_sequences=P_Con_sequence;
@@ -593,6 +599,7 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
    
   --2.循环当前条件下有多少种情况
   L_Con_Result:='';
+  L_Con_Result_Desc:='';
   For Cur_in_Con_Vals In cur_get_Con_Vals(Cur_in_Condition.mapp_id,Cur_in_Condition.con_sequences) Loop
       
       If Cur_in_Con_Vals.attribute1='VALUE' Then 
@@ -608,17 +615,20 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
           --1.1 判断是否符合条件
           If L_var > 0 Then 
           L_Con_Result:=L_Con_Result||Cur_in_Con_Vals.true_value;
+          L_Con_Result_Desc:=L_Con_Result_Desc||Cur_in_Con_Vals.Attribute6;
           Else
           L_Con_Result:=L_Con_Result||Cur_in_Con_Vals.false_value;
+          L_Con_Result_Desc:=L_Con_Result_Desc||Cur_in_Con_Vals.Attribute7;
           End If;
       Else
       --2.2 当条件是Set集
         l_sql:='Select  count(1) From CUX_GL_DETAIL_ALL where DETIAL_ID='||p_detial_id||' and '
-                ||Cur_in_Con_Vals.column_name||' in ( Select Ffv.Flex_Value
+                ||Cur_in_Con_Vals.column_name||' in ( Select Ffv.DESCRIPTION
                                                       From Fnd_Flex_Values_Vl Ffv
                                                      Where Ffv.Flex_Value_Set_Id = '||Cur_in_Con_Vals.attribute3||'
                                                     )';
                                                         
+           dbms_output.put_line(L_sql);
            Open cv For l_sql;
            Loop
            Fetch cv Into  L_var;
@@ -627,8 +637,10 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
           --1.1 判断是否符合条件
           If L_var > 0 Then 
           L_Con_Result:=L_Con_Result||Cur_in_Con_Vals.true_value;
+          L_Con_Result_Desc:=L_Con_Result_Desc||Cur_in_Con_Vals.Attribute6;
           Else
           L_Con_Result:=L_Con_Result||Cur_in_Con_Vals.false_value;
+          L_Con_Result_Desc:=L_Con_Result_Desc||Cur_in_Con_Vals.Attribute7;
           End If;
       End If;    
   End Loop;
@@ -636,7 +648,7 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
       If L_Con_Result='' Then 
         Begin
         Select 
-             cgimv.attribute2 Into L_Con_Result
+             cgimv.attribute2,cgimv.attribute8 Into L_Con_Result,L_Con_Result_Desc
         From Cux_Gl_Intab_Map_Value Cgimv
         Where Cgimv.Mapp_Id=Cur_in_Condition.mapp_id
         And   cgimv.con_sequences=Cur_in_Condition.con_sequences
@@ -649,11 +661,13 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
       dbms_output.put_line('L_Con_Result:'||L_Con_Result);
   --拼上每一次的
  L_Result:=L_Result||nvl(L_Con_Result,'FAIL')||'-';
+ L_Result_Desc:=L_Result_Desc||nvl(L_Con_Result_Desc,'错误')||'-';
  End Loop;
   dbms_output.put_line('L_Result:'||L_Result);
  L_Result:=Rtrim(L_Result,'-');
+ L_Result_Desc:=Rtrim(L_Result_Desc,'-');
        --返回结果
-       Return L_Result;
+       Return L_Result||'#'||L_Result_Desc;
       Exception When Others Then 
         cux_uninterface_pkg.log(const_ledger,-9999,'get_normal_source_type(更新业务类型) 出现错误'||Sqlerrm,const_batch_id);
          Return -999; 
@@ -679,6 +693,7 @@ Procedure Update_bussiness_name (P_ledger_id In Varchar2) Is
   l_condition_id    Varchar2(100);
   L_base_VALUE           Varchar2(100);
   l_base_result          Varchar2(100);
+  l_base_result_desc     varchar2(2000);
   L_result_name               Varchar2(100);
   L_result_code               Varchar2(100);
   l_sql                  Varchar2(2000);
@@ -751,7 +766,8 @@ Procedure Update_bussiness_name (P_ledger_id In Varchar2) Is
                       And Cgtm.Attribute1 = get_detial.source_name
                       And Rownum = 1 ;  
        l_base_result:=get_normal_source_type(get_detial.detial_id,get_detial.source_name); 
-                    
+       l_base_result:=substr(l_base_result,0,instr(l_base_result,'#')-1);
+       l_base_result_desc:=substr(l_base_result,instr(l_base_result,'#')+1);   
         Exception When Others Then 
            cux_uninterface_pkg.log(const_ledger,-9999,'动态更新业务类型出错了get_detial'||get_detial.detial_id,const_batch_id); 
         End ;              
@@ -766,13 +782,13 @@ Procedure Update_bussiness_name (P_ledger_id In Varchar2) Is
          --And Cgic.Conresult_Value=l_base_result;
          And regexp_instr(l_base_result,'^'||replace(Cgic.Conresult_Value,'N','[[:alnum:]]'))>0;
        Exception When Others Then 
-          cux_uninterface_pkg.log(const_ledger,get_detial.detial_id,'动态更新业务类型出错了'||Sqlerrm||'l_condition_id:'||l_condition_id||'l_base_result'||l_base_result,const_batch_id); 
+          cux_uninterface_pkg.log(const_ledger,get_detial.detial_id,'动态更新业务类型出错了'||Sqlerrm||'l_condition_id:'||l_condition_id||'l_base_result'||l_base_result_desc,const_batch_id); 
        End;  
      Update Cux_Gl_Detail_All cgda Set cgda.bussiness_name=L_result_name, cgda.bussiness_code=L_result_code where cgda.detial_id=get_detial.detial_id;        
      End Loop;
    --  Commit;
   Exception When Others Then 
-    cux_uninterface_pkg.log(const_ledger,-9999,'动态更新业务类型出错了'||Sqlerrm||'l_condition_id:'||l_condition_id||'l_base_result'||l_base_result,const_batch_id); 
+    cux_uninterface_pkg.log(const_ledger,-9999,'动态更新业务类型出错了'||Sqlerrm||'l_condition_id:'||l_condition_id||'l_base_result'||l_base_result_desc,const_batch_id); 
 End; 
 
  /*================================================
@@ -883,6 +899,7 @@ Select cgdi.batch_name,
 Cursor cur_header(p_batch In Varchar2) Is 
 Select Cgdi.Header_Name, 
        Cgdi.Header_Desc, 
+        Min(cgdi.accounting_date) period_date,
        Sum(nvl(cgdi.header_reference,0)) refference
   From Cux_Gl_Detail_Inter Cgdi
  Where 1 = 1
@@ -972,7 +989,7 @@ Begin
             )
             Values
             ( get_batch.ledger_id
-             ,get_batch.period_date
+             ,get_header.period_date
              ,get_batch.batch_name
              ,get_batch.batch_des
              ,get_batch.Source_name
