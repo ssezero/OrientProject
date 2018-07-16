@@ -1,4 +1,4 @@
-create or replace package apps.CUX_INTERFACE_RULE_PKG is
+create or replace package CUX_INTERFACE_RULE_PKG is
 
   -- Author  : NEAL
   -- Created : 2018/3/19 13:03:38
@@ -15,10 +15,10 @@ create or replace package apps.CUX_INTERFACE_RULE_PKG is
  Function get_bankflow_source_type (p_detial_id In Varchar2) Return Varchar2;
  Function get_mapping_comments(p_value  Varchar2,p_mapp Varchar2) Return Varchar2;
  Function get_normal_source_type (p_detial_id In Varchar2,p_source_type In Varchar2) Return Varchar2;
-    
+ Function WebSerInsert(P_VALUE in clob) Return clob;  
 end CUX_INTERFACE_RULE_PKG;
 /
-create or replace package body apps.CUX_INTERFACE_RULE_PKG is
+create or replace package body CUX_INTERFACE_RULE_PKG is
 /*================================================
   * ===============================================
   *   PROGRAM NAME:
@@ -34,6 +34,111 @@ create or replace package body apps.CUX_INTERFACE_RULE_PKG is
   const_ledger Number;
   G_PKG_NAME CONSTANT VARCHAR2(35) := 'CUX_INTERFACE_RULE_PKG';
   const_batch_id  VARCHAR2(500);
+  
+  
+---公共接口程序
+--格式选择用json
+/*
+----------------------接口格式---------------------------
+{
+  "SourceType": "来源''类''型",
+  "Batch_Id": "BATCH00001",
+  "Load_Date": "20170608",
+  "HEADER": [{
+      "Header_ID": "Heade_01",
+      "Header_Name": "头名称",
+      "LINE": [{
+          "Line_Id": "1",
+          "Line_colm1": "111000",
+          "Line_colm2": "10"
+        },
+        {
+          "Line_Id": "2",
+          "Line_colm1": "2000",
+          "Line_colm2": "20"
+        }
+      ]
+    },
+         
+    {
+      "Header_ID": "Heade_02",
+      "Header_Name": "头2名称",
+      "LINE": [{
+          "Line_Id": "02-1 ",
+          "Line_colm1": "111000",
+          "Line_colm2": "10"
+        },
+        {
+          "Line_Id": "02-2",
+          "Line_colm1": "2000",
+          "Line_colm2": "20"
+        }
+      ]
+    }
+
+  ]
+}
+*/
+Function WebSerInsert(P_VALUE in clob) Return clob
+  is
+    v_json_varchar2 clob;
+    injson          json;
+    headerlist      json_list;
+    linelist        json_list;
+    paramlist       json_list;
+    onejson         json;
+    linejson        json;
+    --第一层 
+    SourceType VARCHAR2(1000);
+    Batch_Id VARCHAR2(1000);
+    Load_Date    VARCHAR2(1000);
+    --第二层 
+    Header_ID      VARCHAR2(1000);
+    Header_Name    VARCHAR2(1000);
+    --第三层
+    Line_Id        varchar2(1000);
+    Line_colm1     varchar2(2000);
+    Line_colm2     varchar2(2000);
+ 
+BEGIN
+
+    v_json_varchar2:=P_VALUE;
+    
+    injson := json(v_json_varchar2);
+    
+    ------------------第一层json值---------------------------------- 
+    SourceType := json_ext.get_string(injson, 'SourceType');
+    Batch_Id := json_ext.get_string(injson, 'Batch_Id');
+    Load_Date := json_ext.get_string(injson, 'Load_Date');
+    dbms_output.put_line('第一层：SourceType'||SourceType);
+    
+    -------------------------------第二层------------------------------------- 
+    headerlist:=json_list();
+    linelist:=json_list();
+    onejson := json();
+    linejson:=json();
+    headerlist := json_ext.get_json_list(injson, 'HEADER');
+    FOR i IN 1 .. headerlist.count LOOP
+      onejson := json(headerlist.get(i));
+      ---取Header_ID
+      Header_ID:=json_ext.get_string(onejson, 'Header_ID');
+      dbms_output.put_line('第二层:HeaderID:'||Header_ID);
+      
+       ------------------------------第三层------------------------------------------------
+        linelist:=json_ext.get_json_list(onejson, 'LINE'); --*注意地方传入的是headerjson
+        FOR i IN 1 .. linelist.count LOOP
+        linejson := json(linelist.get(i));
+        --输入出line_id
+        dbms_output.put_line(json_ext.get_string(linejson, 'Line_Id'));
+        ------------------------insert table--------------------------------
+        --插入基础表等待实现 
+        -----------------------------------------------------------
+        end loop;
+    
+    end loop;  
+    return 'ok1'; 
+end;
+
 Function get_rule_result(p_group_id In Number,P_deatal In Number) Return
   Varchar2
   Is 
@@ -565,6 +670,7 @@ End;
     Is
      l_sql    Varchar2(2000);
   L_var    Number;
+  L_VALUES varchar2(2000);
   cv Sys_Refcursor;  ---动态游标
   L_Con_Result Varchar2(200);--每个条件的返回结果值
   L_Con_Result_Desc Varchar2(1000):='';
@@ -601,12 +707,21 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
   L_Con_Result:='';
   L_Con_Result_Desc:='';
   For Cur_in_Con_Vals In cur_get_Con_Vals(Cur_in_Condition.mapp_id,Cur_in_Condition.con_sequences) Loop
+     
+      l_sql:='Select  '||Cur_in_Con_Vals.column_name|| ' From CUX_GL_DETAIL_ALL where DETIAL_ID='||p_detial_id;    
+      L_VALUES:='';
+       Open cv For l_sql;
+           Loop
+           Fetch cv Into  L_VALUES;
+           Exit When cv%Notfound;
+      End Loop;
       
+  
       If Cur_in_Con_Vals.attribute1='VALUE' Then 
       
         --2.1 当条件是VAUE值的时候)
           l_sql:= 'Select  count(1) From CUX_GL_DETAIL_ALL where DETIAL_ID='||p_detial_id||' and '||Cur_in_Con_Vals.column_name||'='''||Cur_in_Con_Vals.conditions||'''';
-           dbms_output.put_line('l_sql:'||l_sql);
+           --dbms_output.put_line('l_sql:'||l_sql);
            Open cv For l_sql;
            Loop
            Fetch cv Into  L_var;
@@ -628,7 +743,7 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
                                                      Where Ffv.Flex_Value_Set_Id = '||Cur_in_Con_Vals.attribute3||'
                                                     )';
                                                         
-           dbms_output.put_line(L_sql);
+           --dbms_output.put_line(L_sql);
            Open cv For l_sql;
            Loop
            Fetch cv Into  L_var;
@@ -645,10 +760,12 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
       End If;    
   End Loop;
    --2.3 如果当前条件下都没有取到考虑返回不存在的值
-      If L_Con_Result='' Then 
+
+      If L_Con_Result='' or L_Con_Result is null Then
+
         Begin
         Select 
-             cgimv.attribute2,cgimv.attribute8 Into L_Con_Result,L_Con_Result_Desc
+             cgimv.attribute2,nvl(L_VALUES,'无值')||cgimv.attribute8 Into L_Con_Result,L_Con_Result_Desc
         From Cux_Gl_Intab_Map_Value Cgimv
         Where Cgimv.Mapp_Id=Cur_in_Condition.mapp_id
         And   cgimv.con_sequences=Cur_in_Condition.con_sequences
@@ -658,12 +775,12 @@ Cursor cur_get_Con_Vals(P_Mapp_id In Varchar2,P_Con_sequence In Varchar2) Is
          L_Con_Result:='NULL';
         End ; 
       End If;
-      dbms_output.put_line('L_Con_Result:'||L_Con_Result);
+
   --拼上每一次的
  L_Result:=L_Result||nvl(L_Con_Result,'FAIL')||'-';
  L_Result_Desc:=L_Result_Desc||nvl(L_Con_Result_Desc,'错误')||'-';
  End Loop;
-  dbms_output.put_line('L_Result:'||L_Result);
+
  L_Result:=Rtrim(L_Result,'-');
  L_Result_Desc:=Rtrim(L_Result_Desc,'-');
        --返回结果
@@ -692,7 +809,7 @@ Procedure Update_bussiness_name (P_ledger_id In Varchar2) Is
   l_condition_value Varchar2(100);
   l_condition_id    Varchar2(100);
   L_base_VALUE           Varchar2(100);
-  l_base_result          Varchar2(100);
+  l_base_result          Varchar2(2000);
   l_base_result_desc     varchar2(2000);
   L_result_name               Varchar2(100);
   L_result_code               Varchar2(100);
@@ -766,8 +883,9 @@ Procedure Update_bussiness_name (P_ledger_id In Varchar2) Is
                       And Cgtm.Attribute1 = get_detial.source_name
                       And Rownum = 1 ;  
        l_base_result:=get_normal_source_type(get_detial.detial_id,get_detial.source_name); 
+       l_base_result_desc:=substr(l_base_result,instr(l_base_result,'#')+1);  
        l_base_result:=substr(l_base_result,0,instr(l_base_result,'#')-1);
-       l_base_result_desc:=substr(l_base_result,instr(l_base_result,'#')+1);   
+        
         Exception When Others Then 
            cux_uninterface_pkg.log(const_ledger,-9999,'动态更新业务类型出错了get_detial'||get_detial.detial_id,const_batch_id); 
         End ;              
@@ -782,7 +900,7 @@ Procedure Update_bussiness_name (P_ledger_id In Varchar2) Is
          --And Cgic.Conresult_Value=l_base_result;
          And regexp_instr(l_base_result,'^'||replace(Cgic.Conresult_Value,'N','[[:alnum:]]'))>0;
        Exception When Others Then 
-          cux_uninterface_pkg.log(const_ledger,get_detial.detial_id,'动态更新业务类型出错了'||Sqlerrm||'l_condition_id:'||l_condition_id||'l_base_result'||l_base_result_desc,const_batch_id); 
+          cux_uninterface_pkg.log(const_ledger,get_detial.detial_id,'动态更新业务类型出错了'||Sqlerrm||'l_condition_id:'||l_condition_id||'l_base_result'||l_base_result_desc||'l_base_result:'||l_base_result,const_batch_id); 
        End;  
      Update Cux_Gl_Detail_All cgda Set cgda.bussiness_name=L_result_name, cgda.bussiness_code=L_result_code where cgda.detial_id=get_detial.detial_id;        
      End Loop;
@@ -907,7 +1025,8 @@ Select Cgdi.Header_Name,
    And Cgdi.Batch_Name = p_batch
    And cgdi.attribute1='DRAFT'
    And cgdi.batch_id=const_batch_id
- Group By Cgdi.Header_Name, Cgdi.Header_Desc;
+ Group By Cgdi.Header_Name, Cgdi.Header_Desc
+ ;
 --line
 Cursor cur_line(p_batch_name In Varchar2,p_header_name In Varchar2,p_header_dec_name In Varchar2) Is 
     Select Cgd.Batch_Name,
@@ -931,7 +1050,7 @@ Cursor cur_line(p_batch_name In Varchar2,p_header_name In Varchar2,p_header_dec_
      Where Cgd.Batch_Name = p_batch_name
        And Cgd.Header_Name = p_header_name
        And cgd.ledger_id=p_ledger_id
-       And cgd.header_desc=p_header_dec_name
+       And nvl(cgd.header_desc,'header_desc')=nvl(p_header_dec_name,'header_desc') 
        And cgd.batch_id=const_batch_id
        And cgd.attribute1='DRAFT'
      Group By Cgd.Batch_Name,
@@ -997,7 +1116,7 @@ Begin
              --,L_seq||get_header.Header_Name --日记账名字增加serquence
              ,get_header.Header_Name  
              ,get_header.Header_Desc
-            -- ,get_header.refference
+            -- ,get_header.refference  
              ,L_journal_group_id
              ,get_batch.current_code
              ,get_line.Line_Order
@@ -1034,7 +1153,7 @@ Begin
            Where Cgd2.Attribute1 = 'FINAL'
              And Cgd.Batch_Name = Cgd2.Batch_Name
              And Cgd.Header_Name = Cgd2.Header_Name
-             And cgd.header_desc =cgd2.header_desc
+             And nvl(cgd.header_desc,'header_desc') =nvl(cgd2.header_desc,'header_desc') --银行流水导入失败，因为所有的行摘要都是不一样的。2018 06 29
              And cgd.batch_id = const_batch_id
              And Cgd.Code_Combination_Id = Cgd2.Code_Combination_Id
              And Cgd.Code_Combination_Segment =
@@ -1049,7 +1168,7 @@ Begin
 Exception
   When Others Then
     cux_uninterface_pkg.log(const_ledger,-9999,'汇总更新回明细失败-INSERT_GROUP_TABLE'||Sqlerrm,const_batch_id);  
-  
+
   
 End;
 End;
@@ -1084,7 +1203,7 @@ End;
             Where 1 = 1
               And Ffvs.Flex_Value_Set_Id = Ffv.Flex_Value_Set_Id
               And Ffvs.Flex_Value_Set_Name = 'CUX_GL_ALL_PARTY'
-              And (Ffv.Description = Cgdi.Line_Attribute4 Or Ffv.FLEX_VALUE = Cgdi.Line_Attribute4)
+              And (Ffv.Description = rtrim(Cgdi.Line_Attribute4) Or Ffv.FLEX_VALUE = rtrim(Cgdi.Line_Attribute4))
               And Ffv.Attribute1 In
                   (Select t.Party_Gategory
                      From Cux_Assist_Account_Map t
@@ -1725,6 +1844,19 @@ Delete CUX_GL_DETAIL_INTER  cgdi Where cgdi.detaile_id=p_detail_Id And cgdi.attr
     End If;
  End Loop;
  
+ --更新借贷
+ update CUX_GL_DETAIL_INTER cgdi
+          set cgdi.line_drcr = case when cgdi.entered_dr is 
+                                 null then
+                                  'CR'
+                                  when cgdi.entered_dr =0 then 
+                                    'CR'
+                                 else
+                                  'DR'
+                               end 
+                            where cgdi.detaile_id=p_detail_Id
+                            ;
+ 
  --如果不存在信息
  If L_count=0 Then 
    cux_uninterface_pkg.log(const_ledger,p_detail_Id,'插入日记账行信息出错,没有取到定义的规则信息',const_batch_id);
@@ -1770,6 +1902,7 @@ Begin
                        And cgdi.batch_id=const_batch_id
                        And (nvl(Cgdi.Entered_Dr,0)+nvl(cgdi.entered_cr,0))<>0
                        And Cgdi.Ledger_Id = p_ledger_id
+                         order by line_DRCR desc 
                     ) Loop               
     l_Iface_Rec.Status                := 'NEW';
     l_Iface_Rec.Set_Of_Books_Id       := cur_in.LEDGER_ID;
@@ -2010,6 +2143,7 @@ Procedure main( ERRBUF      OUT VARCHAR2,
   Is PRAGMA AUTONOMOUS_TRANSACTION;
   l_status Varchar2(40);
   l_count Number;
+  l_count_ungroup NUMBER; ---多少行没有生产日记账行的
   L_MSG_DATA      VARCHAR2(2000);
   l_Resp Number;
   l_Co   Varchar2(100);
@@ -2025,6 +2159,7 @@ Procedure main( ERRBUF      OUT VARCHAR2,
    And nvl(cgda.batch_id,2)=nvl(P_batch,2)
    And Cgda.Feedback1 = 'PROCESS';---状态代表最新过来的。
   Begin
+    dbms_output.put_line(2126);
   --1.设置每个行的批的名称和描述
      --.1.1 删除所有的日志新
     const_batch_id:=P_batch;
@@ -2105,6 +2240,16 @@ Procedure main( ERRBUF      OUT VARCHAR2,
    cux_uninterface_pkg.log(const_ledger,-7777,'1585',const_batch_id);
     --进行汇总
    INSERT_GROUP_TABLE(Curget.Ledger_Id);
+    l_count_ungroup:=0;
+   --查找多少行没有生成group id 
+     Select COUNT(*) INTO l_count_ungroup
+            From Cux_Gl_Detail_Inter Cgd2
+           Where Cgd2.Group_Id IS NULL
+           AND cgd2.batch_id=const_batch_id;  
+    IF  l_count_ungroup <> 0 THEN 
+        cux_uninterface_pkg.log(const_ledger,-9999,'不是所有的明细都正确的产生了日记账',const_batch_id);
+    END IF;
+   
   --更新行弹性域信息
    cux_uninterface_pkg.log(const_ledger,-7777,'1589',const_batch_id);
    update_attribute_line(Curget.Ledger_Id);
@@ -2116,7 +2261,8 @@ Procedure main( ERRBUF      OUT VARCHAR2,
                         cnl.batch_id=const_batch_id
                         And NVL(cnl.detial_id,1) <> -7777  ---排除日志的
                         ;
-                         
+
+                    
   If l_count = 0 Then ---不存基本的错误信息
   --插入接口表生成数据
    cux_uninterface_pkg.log(const_ledger,-7777,'1592',const_batch_id);
